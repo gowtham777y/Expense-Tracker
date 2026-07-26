@@ -12,10 +12,13 @@ class User(BaseModel):
 
 router = APIRouter()
 
-@router.post("/users")
+@router.post("/signup")
 def signup(user: User, db: Session = Depends(get_db)):
     db_user = db.query(UserModel).filter(UserModel.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     return {"message": "User created"}
-    
+
+@router.post("/login")
+def login(user: User,db : Session = Depends(get_db)):
+    return {"message": "User Logged in"}
