@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from database import get_db
-from models import UserModel
+from database.database import get_db
+from database.models import UserModel
 
 class User(BaseModel):
     name: str
