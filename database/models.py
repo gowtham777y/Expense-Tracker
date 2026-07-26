@@ -4,7 +4,8 @@ from database.database import Base
 class UserModel(Base):
     __tablename__ = "users"
 
-    name = Column(String,primary_key=True,index=True)
+    id = Column(Integer, primary_key=True,index=True)
+    name = Column(String)
     age = Column(Integer)
     email = Column(String,unique=True,index=True)
     hashed_password = Column(String)
