@@ -72,7 +72,7 @@ def add_expense(expense: Expense,db: Session = Depends(get_db),current_user_emai
     db.add(db_expense)
     db.commit()
     db.refresh(db_expense)
-    return {"status": status.HTTP_201_CREATED, "message": "Expense added", "expense_id": {db_expense.id}}
+    return {"status": status.HTTP_201_CREATED, "message": "Expense added", "expense_id": db_expense.id}
 
 @router.get("/expenses")
 def get_expenses(
@@ -128,15 +128,12 @@ def get_expenses_summary(month_name: str, db: Session = Depends(get_db), current
     query_results = db.query(
         ExpenseModel.category.label("category_name"),
         func.sum(ExpenseModel.amount).label("expense_amount")
-    ).select_from(ExpenseModel).join(
-        CategoryModel,
-        CategoryModel.category == ExpenseModel.category
     ).filter(
         ExpenseModel.user_id == db_user.id,
         ExpenseModel.date >= start_date,
         ExpenseModel.date <= end_date
     ).group_by(
-        CategoryModel.category
+        ExpenseModel.category
     ).all()
     if not query_results:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No Expenses found")

@@ -6,3 +6,7 @@ app.db
 # Ignore environment/secret files
 .env
 .DS_Store
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
