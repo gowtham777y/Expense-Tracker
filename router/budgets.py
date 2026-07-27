@@ -4,13 +4,20 @@ from sqlalchemy import func
 from authentication.auth import get_current_user
 from database.database import get_db
 from database.models import UserModel, BudgetModel, CategoryModel, ExpenseModel
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from date_ranges import get_month_ranges
 
 class Budget(BaseModel):
     category_name: str
     month_name: str
     budget_amount: float
+
+    @field_validator("budget_amount")
+    @classmethod
+    def amount_is_negative(cls,value):
+        if value < 0:
+            raise ValueError("Budget Amount Can't be Negative")
+        return value
 
 class BudgetDel(BaseModel):
     category_name: str

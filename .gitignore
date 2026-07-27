@@ -5,3 +5,4 @@ app.db
 
 # Ignore environment/secret files
 .env
+.DS_Store

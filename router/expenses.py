@@ -2,11 +2,12 @@ from fastapi import APIRouter,HTTPException, Depends, status
 from database.database import get_db
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import date
 from authentication.auth import get_current_user
 from database.models import UserModel,ExpenseModel,CategoryModel
 from date_ranges import get_month_ranges
+from typing import Optional
 
 class Expense(BaseModel):
     name: str
@@ -14,6 +15,21 @@ class Expense(BaseModel):
     description: str
     expense_date: date
     amount: float
+
+    @field_validator("amount")
+    @classmethod
+    def amount_is_positive(cls,value):
+        if value < 0:
+            raise ValueError("Amount can't be negative")
+        return value
+
+    @field_validator("expense_date")
+    @classmethod
+    def date_is_future(cls,value):
+        if value > date.today():
+            raise ValueError("Date can't be in Future")
+        return value
+
 
 class ExpenseUpdate(BaseModel):
     expense_id: int
@@ -23,6 +39,20 @@ class ExpenseUpdate(BaseModel):
     expense_date: date
     amount: float
 
+    @field_validator("amount")
+    @classmethod
+    def amount_is_positive(cls,value):
+        if value < 0:
+            raise ValueError("Amount can't be negative")
+        return value
+
+    @field_validator("expense_date")
+    @classmethod
+    def date_is_future(cls,value):
+        if value > date.today():
+            raise ValueError("Date can't be in Future")
+        return value
+
 router = APIRouter()
 
 @router.post("/expenses")
@@ -31,10 +61,6 @@ def add_expense(expense: Expense,db: Session = Depends(get_db),current_user_emai
     db_category = db.query(CategoryModel).filter(CategoryModel.category == expense.category).first()
     if not db_category:
         raise HTTPException(status_code=404, detail="Category doesn't exist")
-    if expense.amount < 0:
-        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail="Negative Amount is not acceptable")
-    if expense.expense_date > date.today():
-        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail="Future Expense is not acceptable")
     db_expense = ExpenseModel(
         name=expense.name,
         category=expense.category,
@@ -49,28 +75,24 @@ def add_expense(expense: Expense,db: Session = Depends(get_db),current_user_emai
     return {"status": status.HTTP_201_CREATED, "message": "Expense added", "expense_id": {db_expense.id}}
 
 @router.get("/expenses")
-def get_expenses(month_name: str,db:Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
+def get_expenses(
+    category: Optional[str] = None,
+    start_date : Optional[date] = None,
+    end_date: Optional[date] = None,
+    skip: Optional[int] = 0,
+    limit: Optional[int] = 20,
+    db:Session = Depends(get_db), 
+    current_user_email: str = Depends(get_current_user)
+    ):
     db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
-    start_date, end_date = get_month_ranges(month_name)
-    query_results = db.query(
-        ExpenseModel.name.label("expense_name"),
-        ExpenseModel.amount.label("expense_amount"),
-        ExpenseModel.description.label("expense_description")
-    ).select_from(ExpenseModel).filter(
-        ExpenseModel.user_id == db_user.id,
-        ExpenseModel.date >= start_date,
-        ExpenseModel.date <= end_date
-    ).all()
-    if not query_results:
-        raise HTTPException(status_code= status.HTTP_404_NOT_FOUND, detail="No Expenses found")
-    result = []
-    for row in query_results:
-        result.append({
-            "Expense Name": row.expense_name,
-            "Amount Spent": row.expense_amount,
-            "Description": row.expense_description
-        })
-    return result
+    db_expenses = db.query(ExpenseModel).filter(ExpenseModel.user_id == db_user.id)
+    if category:
+        db_expenses = db_expenses.filter(ExpenseModel.category == category)
+    if start_date:
+        db_expenses = db_expenses.filter(ExpenseModel.date >= start_date)
+    if end_date:
+        db_expenses = db_expenses.filter(ExpenseModel.date <= end_date)
+    return db_expenses.offset(skip).limit(limit).all()
 
 @router.put("/expenses")
 def update_expense(expense: ExpenseUpdate, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
@@ -78,10 +100,6 @@ def update_expense(expense: ExpenseUpdate, db: Session = Depends(get_db), curren
     db_expense = db.query(ExpenseModel).filter(ExpenseModel.id == expense.expense_id).first()
     if db_user.id != db_expense.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Expense is not associated with the user")
-    if expense.amount < 0:
-        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail="Negative Amount is not acceptable")
-    if expense.expense_date > date.today():
-        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail="Future Expense is not acceptable")
     db_expense.name = expense.name
     db_expense.description = expense.description
     db_expense.amount = expense.amount
