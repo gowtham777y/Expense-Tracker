@@ -92,3 +92,26 @@ def delete_budget(budget: BudgetDel, db: Session = Depends(get_db), current_user
     del db_budget
     db.commit()
     return {"message": "Budget Deleted"}
+
+@router.get("/budget")
+def get_budgets(month_name: str, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
+    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+    start_date , end_date = get_month_ranges(month_name)
+    query_results = db.query(
+        CategoryModel.category.label("Category_Name"),
+        BudgetModel.budget.label("Budget_Amount")
+    ).select_from(BudgetModel).join(
+        CategoryModel
+    ).filter(
+        BudgetModel.user_id == db_user.id,
+        BudgetModel.start_date == start_date
+    ).all()
+    if not query_results:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget not created")
+    report = []
+    for row in query_results:
+        report.append({
+            "Category Name": row.Category_Name,
+            "Budget Amount": row.Budget_Amount
+        })
+    return report
