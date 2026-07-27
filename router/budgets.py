@@ -89,7 +89,7 @@ def delete_budget(budget: BudgetDel, db: Session = Depends(get_db), current_user
             break
     if not db_budget:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget doesn't exist")
-    del db_budget
+    db.delete(db_budget)
     db.commit()
     return {"message": "Budget Deleted"}
 

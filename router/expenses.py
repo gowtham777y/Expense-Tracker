@@ -14,6 +14,14 @@ class Expense(BaseModel):
     expense_date: date
     amount: float
 
+class ExpenseUpdate(BaseModel):
+    expense_id: int
+    name: str
+    category: str
+    description: str
+    expense_date: date
+    amount: float
+
 router = APIRouter()
 
 @router.post("/expenses")
@@ -22,6 +30,10 @@ def add_expense(expense: Expense,db: Session = Depends(get_db),current_user_emai
     db_category = db.query(CategoryModel).filter(CategoryModel.category == expense.category).first()
     if not db_category:
         raise HTTPException(status_code=404, detail="Category doesn't exist")
+    if expense.amount < 0:
+        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail="Negative Amount is not acceptable")
+    if expense.expense_date > date.today():
+        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail="Future Expense is not acceptable")
     db_expense = ExpenseModel(
         name=expense.name,
         category=expense.category,
@@ -58,3 +70,34 @@ def get_expenses(month_name: str,db:Session = Depends(get_db), current_user_emai
             "Description": row.expense_description
         })
     return result
+
+@router.put("/expenses")
+def update_expense(expense: ExpenseUpdate, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
+    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+    db_expense = db.query(ExpenseModel).filter(ExpenseModel.id == expense.expense_id).first()
+    if db_user.id != db_expense.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Expense is not associated with the user")
+    if expense.amount < 0:
+        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail="Negative Amount is not acceptable")
+    if expense.expense_date > date.today():
+        raise HTTPException(status_code=status.HTTP_406_NOT_ACCEPTABLE, detail="Future Expense is not acceptable")
+    db_expense.name = expense.name
+    db_expense.description = expense.description
+    db_expense.amount = expense.amount
+    db_expense.category = expense.category
+    db_expense.date = expense.expense_date
+    db.commit()
+    db.refresh(db_expense)
+    return {"status": status.HTTP_200_OK, "Expense ID": db_expense.id, "message": "Expense Updated"}
+
+@router.delete("/expenses")
+def delete_expense(expense_id: int, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
+    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+    db_expense = db.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
+    if not db_expense:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    if db_expense.user_id != db_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your Expense")
+    db.delete(db_expense)
+    db.commit()
+    return {"status": status.HTTP_200_OK, "message": "Expense Deleted"}
