@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from authentication.auth import get_current_user
 from database.database import get_db
-from database.models import UserModel, BudgetModel
+from database.models import UserModel, BudgetModel, CategoryModel, ExpenseModel
 from pydantic import BaseModel
-from datetime import date
-import calendar
+from date_ranges import get_month_ranges
 
 class Budget(BaseModel):
     category_name: str
@@ -17,19 +17,6 @@ class BudgetDel(BaseModel):
     month_name: str
 
 router = APIRouter()
-
-def get_month_ranges(month_name : str):
-    cleaned_month = month_name.strip().capitalize()
-    try:
-        month_list = list(calendar.month_name)
-        month_number = month_list.index(cleaned_month)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Month name")
-    current_year = date.today().year
-    start_date = date(current_year,month_number,1)
-    _, total_days = calendar.monthrange(current_year,month_number)
-    end_date = date(current_year,month_number,total_days)
-    return start_date,end_date 
 
 @router.post("/budget")
 def add_budget(budget: Budget, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
