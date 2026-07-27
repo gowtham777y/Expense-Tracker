@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Date, ForeignKey
+from sqlalchemy import Column, String, Integer, Date, ForeignKey, Float
 from sqlalchemy.orm import Relationship
 from database.database import Base
 
@@ -23,6 +23,7 @@ class ExpenseModel(Base):
     category = Column(String)
     description = Column(String)
     date = Column(Date)
+    amount = Column(Float)
     user_id = Column(Integer,ForeignKey("users.id"))
 
     owner = Relationship("UserModel",back_populates="expenses")
@@ -41,8 +42,8 @@ class BudgetModel(Base):
     __tablename__ = "budgets"
 
     id = Column(Integer,primary_key=True,index=True)
-    category = Column(String,ForeignKey("categories.category"))
-    budget = Column(Integer)
+    category_id = Column(Integer,ForeignKey("categories.id"))
+    budget = Column(Float)
     user_id = Column(Integer,ForeignKey("users.id"))
 
     owner = Relationship("UserModel",back_populates="budget")

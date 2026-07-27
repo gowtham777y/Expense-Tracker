@@ -1,0 +1,7 @@
+# Ignore local SQLite databases
+app.db
+*.db
+*.sqlite3
+
+# Ignore environment/secret files
+.env
