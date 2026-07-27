@@ -127,7 +127,7 @@ def get_budgets(month_name: str, db: Session = Depends(get_db), current_user_ema
 def get_balance(month_name: str, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
     db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
     if not db_user.budget:
-        raise HTTPException(status_code=status.HTTP_204_NO_CONTENT, detail="Budget doesn't exists")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget doesn't exists")
     start_date, end_date = get_month_ranges(month_name)
     found = None
     for budgetModel in db_user.budget:
@@ -135,7 +135,7 @@ def get_balance(month_name: str, db: Session = Depends(get_db), current_user_ema
             found = budgetModel
             break
     if not found:
-        raise HTTPException(status_code=status.HTTP_204_NO_CONTENT, detail="Budget doesn't exists")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget doesn't exists")
     query_results = db.query(
         CategoryModel.category.label("category_name"),
         BudgetModel.budget.label("budget_amount"),
