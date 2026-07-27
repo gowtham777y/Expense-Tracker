@@ -44,6 +44,8 @@ class BudgetModel(Base):
     id = Column(Integer,primary_key=True,index=True)
     category_id = Column(Integer,ForeignKey("categories.id"))
     budget = Column(Float)
+    start_date = Column(Date)
+    end_date = Column(Date)
     user_id = Column(Integer,ForeignKey("users.id"))
 
     owner = Relationship("UserModel",back_populates="budget")

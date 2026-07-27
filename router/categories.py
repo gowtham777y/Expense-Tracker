@@ -13,8 +13,7 @@ router = APIRouter()
 @router.get("/category")
 def get_category(db: Session = Depends(get_db),current_user_email: str = Depends(get_current_user)):
     db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
-    db_categories = db.query(CategoryModel).filter(CategoryModel.user_id == db_user.id).all()
-    return db_categories
+    return db_user.category
 
 @router.post("/category")
 def add_category(category: Category, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
