@@ -1,6 +1,7 @@
 from fastapi import APIRouter,HTTPException, Depends, status
 from database.database import get_db
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
 from datetime import date
 from authentication.auth import get_current_user
@@ -101,3 +102,30 @@ def delete_expense(expense_id: int, db: Session = Depends(get_db), current_user_
     db.delete(db_expense)
     db.commit()
     return {"status": status.HTTP_200_OK, "message": "Expense Deleted"}
+
+@router.get("/expenses/summary")
+def get_expenses_summary(month_name: str, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
+    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+    start_date, end_date = get_month_ranges(month_name)
+    query_results = db.query(
+        ExpenseModel.category.label("category_name"),
+        func.sum(ExpenseModel.amount).label("expense_amount")
+    ).select_from(ExpenseModel).join(
+        CategoryModel,
+        CategoryModel.category == ExpenseModel.category
+    ).filter(
+        ExpenseModel.user_id == db_user.id,
+        ExpenseModel.date >= start_date,
+        ExpenseModel.date <= end_date
+    ).group_by(
+        CategoryModel.category
+    ).all()
+    if not query_results:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No Expenses found")
+    result = []
+    for row in query_results:
+        result.append({
+            "Category" : row.category_name,
+            "Total Spent" : row.expense_amount
+        })
+    return result
