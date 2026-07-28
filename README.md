@@ -1,119 +1,177 @@
 # Expense Tracker API
 
-A multi-user expense and budget tracking REST API built with FastAPI. Users can sign up, log in, organize spending into custom categories, log expenses, set monthly budgets per category, and get spending summaries and budget-vs-actual reports.
+A multi-user expense and budget tracking REST API — originally built as a monolith with FastAPI, and since split into independent microservices to practice service-to-service authentication, ownership boundaries, and distributed system design. Users can sign up, log in, organize spending into custom categories, log expenses, set monthly budgets per category, and get spending summaries and budget-vs-actual reports.
+
+## Architecture
+
+This project is split into two independent services, each with its own codebase, database, and process:
+
+- **`auth-service`** (port `8001`) — owns user identity. Handles signup, login, password hashing, and JWT issuance.
+- **`expense-service`** (port `8002`) — owns expenses, categories, and budgets. Has no knowledge of user records — it independently verifies JWTs issued by `auth-service` using a shared signing secret, and trusts the `user_id` embedded in the token payload.
+
+There is **no shared database** between the two services and **no synchronous service-to-service call** on the request path — `expense-service` never calls `auth-service` to validate a request. Trust is established entirely through the JWT's signature, which both services can verify independently since they share the same `SECRET_KEY`.
+
+```
+┌────────────────┐         JWT (signed)         ┌──────────────────┐
+│  auth-service    │ ──────────────────────────▶ │  expense-service   │
+│  :8001            │                              │  :8002              │
+│  - signup/login   │                              │  - expenses          │
+│  - users.db        │                              │  - categories         │
+│                    │                              │  - budgets             │
+│                    │                              │  - expense_service.db   │
+└────────────────┘                              └──────────────────┘
+```
 
 ## Features
 
-- **Authentication** — JWT-based signup/login, passwords hashed with bcrypt, protected routes via OAuth2 bearer tokens
-- **Categories** — user-scoped, custom expense categories
-- **Expenses** — full CRUD, filterable by category and date range, with pagination
-- **Budgets** — set a monthly budget per category, compare budgeted vs. actual spend
-- **Reporting** — monthly spend summary by category, and a budget balance report (budgeted / spent / remaining)
+- **Authentication** (auth-service) — JWT-based signup/login, passwords hashed with bcrypt
+- **Categories, Expenses, Budgets** (expense-service) — full CRUD, all scoped to the requesting user via the JWT's embedded `user_id`
+- **Filtering & pagination** on expenses (by category, date range)
+- **Reporting** — monthly spend summary by category, and a budget-vs-actual balance report
 - **Validation** — request-level validation via Pydantic (e.g. amounts must be positive, dates can't be in the future)
-- **Ownership enforcement** — every resource is scoped to its owner; users can only read or modify their own data
+- **Cross-service auth** — expense-service independently verifies tokens it never issued, using a shared JWT signing secret — no session store, no auth service round-trip per request
 
 ## Tech Stack
 
-- **FastAPI** — web framework
-- **SQLAlchemy** — ORM, backed by SQLite
+- **FastAPI** — web framework (one instance per service)
+- **SQLAlchemy** — ORM, backed by SQLite (one database per service)
 - **Pydantic** — request/response validation
-- **python-jose** — JWT creation and verification
-- **passlib (bcrypt)** — password hashing
-- **python-dotenv** — environment-based configuration
+- **python-jose** — JWT creation (auth-service) and verification (both services)
+- **passlib (bcrypt)** — password hashing (auth-service only)
+- **python-dotenv** — environment-based configuration, per service
 
 ## Project Structure
 
 ```
 .
-├── main.py                  # App entrypoint, wires up routers
-├── date_ranges.py           # Helper for resolving a month name to a date range
-├── authentication/
-│   └── auth.py               # Password hashing, JWT creation/verification, get_current_user
-├── database/
-│   ├── database.py           # Engine, session, get_db dependency
-│   └── models.py              # SQLAlchemy models: User, Expense, Category, Budget
-└── router/
-    ├── users.py               # /signup, /login
-    ├── categories.py          # /category
-    ├── expenses.py            # /expenses, /expenses/summary
-    └── budgets.py             # /budgets, /budgets/status
+├── auth-service/
+│   ├── main.py
+│   ├── database/
+│   │   ├── database.py       # engine, session, get_db
+│   │   └── models.py          # UserModel
+│   ├── router/
+│   │   └── users.py            # /signup, /login
+│   └── auth/
+│       └── auth.py              # password hashing, JWT creation, SECRET_KEY, ALGORITHM
+│
+└── expense-service/
+    ├── main.py
+    ├── database/
+    │   ├── database.py       # engine, session, get_db (separate DB file)
+    │   └── models.py          # ExpenseModel, CategoryModel, BudgetModel — no UserModel
+    ├── router/
+    │   ├── expenses.py         # /expenses, /expenses/summary
+    │   ├── categories.py       # /category
+    │   └── budgets.py           # /budgets, /budgets/status
+    └── auth/
+        └── auth.py              # JWT verification only — no hashing, no token creation
 ```
 
 ## Setup
 
-1. **Clone the repo and enter the folder**
-   ```bash
-   git clone https://github.com/gowtham777y/Expense-Tracker.git
-   cd Expense-Tracker
-   ```
+Each service is run independently, in its own terminal, with its own virtual environment.
 
-2. **Create and activate a virtual environment**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate   # Windows: venv\Scripts\activate
-   ```
+### 1. Clone the repo
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+git clone https://github.com/gowtham777y/Expense-Tracker.git
+cd Expense-Tracker
+```
 
-4. **Configure environment variables**
+### 2. Set up `auth-service`
 
-   Create a `.env` file inside `authentication/`:
-   ```
-   SECRET_KEY=your-random-secret-key-here
-   ACCESS_TOKEN_EXPIRE_MINUTES=15
-   ```
+```bash
+cd auth-service
+python3 -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-5. **Run the server**
-   ```bash
-   uvicorn main:app --reload
-   ```
+Create a `.env` file inside `auth-service/`:
+```
+SECRET_KEY=your-random-secret-key-here
+ACCESS_TOKEN_EXPIRE_MINUTES=15
+```
 
-6. **Explore the API**
+Run it:
+```bash
+uvicorn main:app --port 8001 --reload
+```
 
-   Open `http://127.0.0.1:8000/docs` for interactive Swagger docs — every endpoint can be tested directly from there, including authorizing with a token via the "Authorize" button.
+### 3. Set up `expense-service`
+
+In a **separate terminal**:
+
+```bash
+cd expense-service
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Create a `.env` file inside `expense-service/` — **`SECRET_KEY` must match `auth-service`'s exactly**, or token verification will fail:
+```
+SECRET_KEY=your-random-secret-key-here
+```
+
+Run it:
+```bash
+uvicorn main:app --port 8002 --reload
+```
+
+### 4. Both services must be running at the same time
+
+- `auth-service` → `http://127.0.0.1:8001/docs`
+- `expense-service` → `http://127.0.0.1:8002/docs`
+
+Get a token from `auth-service`'s `/login`, then use it to authorize on `expense-service`'s `/docs` — it will verify the token independently without calling back to `auth-service`.
 
 ## API Overview
 
-| Method | Endpoint             | Description                                  | Auth required |
-|--------|-----------------------|-----------------------------------------------|----------------|
-| POST   | `/signup`             | Create a new user                             | No             |
-| POST   | `/login`              | Log in, get an access token                   | No             |
-| GET    | `/category`           | List the current user's categories            | Yes            |
-| POST   | `/category`           | Create a new category                         | Yes            |
-| POST   | `/expenses`           | Log a new expense                             | Yes            |
-| GET    | `/expenses`           | List expenses (filter by category/date, paginated) | Yes       |
-| PUT    | `/expenses`           | Update an expense                             | Yes            |
-| DELETE | `/expenses`           | Delete an expense                             | Yes            |
-| GET    | `/expenses/summary`   | Total spend per category for a given month    | Yes            |
-| POST   | `/budgets`             | Set a budget for a category/month             | Yes            |
-| GET    | `/budgets`             | List budgets for a given month                | Yes            |
-| PUT    | `/budgets`             | Update a budget                               | Yes            |
-| DELETE | `/budgets`             | Delete a budget                               | Yes            |
-| GET    | `/budgets/status`      | Budget vs. actual spend for a given month     | Yes            |
+**auth-service** (`:8001`)
+
+| Method | Endpoint  | Description                | Auth required |
+|--------|-----------|------------------------------|----------------|
+| POST   | `/signup` | Create a new user           | No             |
+| POST   | `/login`  | Log in, get an access token | No             |
+
+**expense-service** (`:8002`)
+
+| Method | Endpoint             | Description                                        | Auth required |
+|--------|-----------------------|-------------------------------------------------------|----------------|
+| GET    | `/category`           | List the current user's categories                   | Yes            |
+| POST   | `/category`           | Create a new category                                 | Yes            |
+| POST   | `/expenses`           | Log a new expense                                     | Yes            |
+| GET    | `/expenses`           | List expenses (filter by category/date, paginated)   | Yes            |
+| PUT    | `/expenses`           | Update an expense                                     | Yes            |
+| DELETE | `/expenses`           | Delete an expense                                     | Yes            |
+| GET    | `/expenses/summary`   | Total spend per category for a given month            | Yes            |
+| POST   | `/budgets`             | Set a budget for a category/month                     | Yes            |
+| GET    | `/budgets`             | List budgets for a given month                        | Yes            |
+| PUT    | `/budgets`             | Update a budget                                        | Yes            |
+| DELETE | `/budgets`             | Delete a budget                                        | Yes            |
+| GET    | `/budgets/status`      | Budget vs. actual spend for a given month              | Yes            |
 
 ## Example Usage
 
 ```bash
-# Sign up
-curl -X POST http://127.0.0.1:8000/signup \
+# Sign up (auth-service, :8001)
+curl -X POST http://127.0.0.1:8001/signup \
   -H "Content-Type: application/json" \
   -d '{"name": "Jane", "age": 28, "email": "jane@example.com", "password": "secret123"}'
 
-# Log in
-curl -X POST http://127.0.0.1:8000/login \
+# Log in (auth-service, :8001)
+curl -X POST http://127.0.0.1:8001/login \
   -d "username=jane@example.com&password=secret123"
 
-# Create a category (use the access_token from login)
-curl -X POST http://127.0.0.1:8000/category \
+# Create a category (expense-service, :8002 — use the access_token from login)
+curl -X POST http://127.0.0.1:8002/category \
   -H "Authorization: Bearer <access_token>" \
   -H "Content-Type: application/json" \
   -d '{"name": "Food"}'
 
-# Log an expense
-curl -X POST http://127.0.0.1:8000/expenses \
+# Log an expense (expense-service, :8002)
+curl -X POST http://127.0.0.1:8002/expenses \
   -H "Authorization: Bearer <access_token>" \
   -H "Content-Type: application/json" \
   -d '{"name": "Lunch", "category": "Food", "description": "Team lunch", "expense_date": "2026-07-15", "amount": 250}'
@@ -121,12 +179,15 @@ curl -X POST http://127.0.0.1:8000/expenses \
 
 ## Notes
 
-- Data is stored in a local SQLite file (`app.db`), created automatically on first run.
-- This project focuses on core backend fundamentals: authentication, ownership-scoped data, filtering/pagination, and SQL aggregation — deliberately kept to SQLite rather than a hosted database for simplicity.
+- Each service has its own SQLite database file, created automatically on first run — there is deliberately no shared database.
+- Since services can't share foreign keys across databases, `expense-service` stores `user_id` as a plain integer column (no `ForeignKey`, no SQLAlchemy `relationship()`) — referential integrity between `users` and `expenses` is enforced by application logic and the JWT payload, not by the database.
+- CORS is enabled on `auth-service` to allow Swagger UI on `expense-service`'s `/docs` to call its `/login` endpoint during local testing.
 
 ## Possible Future Improvements
 
+- Introduce a message broker (e.g. RabbitMQ/Kafka) for async, event-driven communication between services — e.g. a `user.deleted` event that `expense-service` listens for, instead of relying purely on convention
+- API Gateway in front of both services, instead of calling each by its own port directly
 - Refresh tokens for longer sessions without re-login
-- Automated tests with pytest
-- Deployment with a hosted Postgres database
+- Automated tests with pytest, per service
+- Deployment with a hosted Postgres database (one per service) and containerization (Docker) for each service
 - Recurring expenses
