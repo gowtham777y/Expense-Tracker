@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from authentication.auth import get_current_user
+from authentication.auth import get_current_user_id
 from database.database import get_db
-from database.models import UserModel, BudgetModel, CategoryModel, ExpenseModel
+from database.models import BudgetModel, CategoryModel, ExpenseModel
 from pydantic import BaseModel, field_validator
 from date_ranges import get_month_ranges
 
@@ -26,18 +26,19 @@ class BudgetDel(BaseModel):
 router = APIRouter()
 
 @router.post("/budgets")
-def add_budget(budget: Budget, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+def add_budget(budget: Budget, db: Session = Depends(get_db), current_user_id: str = Depends(get_current_user_id)):
+    category_list = db.query(CategoryModel).filter(CategoryModel.user_id == current_user_id).all()
     db_category = None
-    for categoryModel in db_user.category:
+    for categoryModel in category_list:
         if categoryModel.category == budget.category_name:
             db_category = categoryModel
             break
     if not db_category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found for User")
+    budget_list = db.query(BudgetModel).filter(BudgetModel.user_id == current_user_id).all()
     start_date , end_date = get_month_ranges(budget.month_name)
     existing = None
-    for budgetModel in db_user.budget:
+    for budgetModel in budget_list:
         if budgetModel.start_date == start_date and budgetModel.category_id == db_category.id:
             existing = budgetModel
             break
@@ -48,7 +49,7 @@ def add_budget(budget: Budget, db: Session = Depends(get_db), current_user_email
         budget = budget.budget_amount,
         start_date=start_date,
         end_date = end_date,
-        user_id = db_user.id
+        user_id = current_user_id
     )
     db.add(db_budget)
     db.commit()
@@ -56,10 +57,10 @@ def add_budget(budget: Budget, db: Session = Depends(get_db), current_user_email
     return {"status": status.HTTP_201_CREATED, "message": "Budget created"}
 
 @router.put("/budgets")
-def update_budget(budget: Budget, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+def update_budget(budget: Budget, db: Session = Depends(get_db), current_user_id: str = Depends(get_current_user_id)):
+    category_list = db.query(CategoryModel).filter(CategoryModel.user_id == current_user_id).all()
     db_category = None
-    for categoryModel in db_user.category:
+    for categoryModel in category_list:
         if categoryModel.category == budget.category_name:
             db_category = categoryModel
             break
@@ -67,7 +68,8 @@ def update_budget(budget: Budget, db: Session = Depends(get_db), current_user_em
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category doesn't exist")
     db_budget = None
     start_date, end_date = get_month_ranges(budget.month_name)
-    for budgetModel in db_user.budget:
+    budget_list = db.query(BudgetModel).filter(BudgetModel.user_id == current_user_id).all()
+    for budgetModel in budget_list:
         if budgetModel.category_id == db_category.id and budgetModel.start_date == start_date:
             db_budget = budgetModel
             break
@@ -79,18 +81,19 @@ def update_budget(budget: Budget, db: Session = Depends(get_db), current_user_em
     return {"status": status.HTTP_200_OK, "message": "Budget has been updated"}
 
 @router.delete("/budgets")
-def delete_budget(budget: BudgetDel, db: Session = Depends(get_db), current_user_email: str= Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+def delete_budget(budget: BudgetDel, db: Session = Depends(get_db), current_user_id: str= Depends(get_current_user_id)):
+    category_list = db.query(CategoryModel).filter(CategoryModel.user_id == current_user_id).all()
     db_category = None
-    for categoryModel in db_user.category:
+    for categoryModel in category_list:
         if categoryModel.category == budget.category_name:
             db_category = categoryModel
             break
     if not db_category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category doesn't exist")
+    budget_list = db.query(BudgetModel).filter(BudgetModel.user_id == current_user_id).all()
     db_budget = None
     start_date, end_date = get_month_ranges(budget.month_name)
-    for budgetModel in db_user.budget:
+    for budgetModel in budget_list:
         if budgetModel.category_id == db_category.id and budgetModel.start_date == start_date:
             db_budget = budgetModel
             break
@@ -101,8 +104,7 @@ def delete_budget(budget: BudgetDel, db: Session = Depends(get_db), current_user
     return {"message": "Budget Deleted"}
 
 @router.get("/budgets")
-def get_budgets(month_name: str, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+def get_budgets(month_name: str, db: Session = Depends(get_db), current_user_id: str = Depends(get_current_user_id)):
     start_date , end_date = get_month_ranges(month_name)
     query_results = db.query(
         CategoryModel.category.label("Category_Name"),
@@ -110,7 +112,7 @@ def get_budgets(month_name: str, db: Session = Depends(get_db), current_user_ema
     ).select_from(BudgetModel).join(
         CategoryModel
     ).filter(
-        BudgetModel.user_id == db_user.id,
+        BudgetModel.user_id == current_user_id,
         BudgetModel.start_date == start_date
     ).all()
     if not query_results:
@@ -124,13 +126,13 @@ def get_budgets(month_name: str, db: Session = Depends(get_db), current_user_ema
     return report
 
 @router.get("/budgets/status")
-def get_balance(month_name: str, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
-    if not db_user.budget:
+def get_balance(month_name: str, db: Session = Depends(get_db), current_user_id: str = Depends(get_current_user_id)):
+    budget_list = db.query(BudgetModel).filter(BudgetModel.user_id == current_user_id).all()
+    if not budget_list:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget doesn't exists")
     start_date, end_date = get_month_ranges(month_name)
     found = None
-    for budgetModel in db_user.budget:
+    for budgetModel in budget_list:
         if budgetModel.start_date == start_date:
             found = budgetModel
             break
@@ -150,7 +152,7 @@ def get_balance(month_name: str, db: Session = Depends(get_db), current_user_ema
         (ExpenseModel.date >= start_date)&
         (ExpenseModel.date <= end_date)
     ).filter(
-        BudgetModel.user_id == db_user.id,
+        BudgetModel.user_id == current_user_id,
         BudgetModel.start_date == start_date
     ).group_by(
         CategoryModel.id,

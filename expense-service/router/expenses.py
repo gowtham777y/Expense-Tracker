@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel, field_validator
 from datetime import date
-from authentication.auth import get_current_user
-from database.models import UserModel,ExpenseModel,CategoryModel
+from authentication.auth import get_current_user_id
+from database.models import ExpenseModel,CategoryModel
 from date_ranges import get_month_ranges
 from typing import Optional
 
@@ -56,8 +56,7 @@ class ExpenseUpdate(BaseModel):
 router = APIRouter()
 
 @router.post("/expenses")
-def add_expense(expense: Expense,db: Session = Depends(get_db),current_user_email: str = Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+def add_expense(expense: Expense,db: Session = Depends(get_db),current_user_id: str = Depends(get_current_user_id)):
     db_category = db.query(CategoryModel).filter(CategoryModel.category == expense.category).first()
     if not db_category:
         raise HTTPException(status_code=404, detail="Category doesn't exist")
@@ -67,7 +66,7 @@ def add_expense(expense: Expense,db: Session = Depends(get_db),current_user_emai
         description=expense.description,
         date=expense.expense_date,
         amount=expense.amount,
-        user_id=db_user.id
+        user_id=current_user_id
     )
     db.add(db_expense)
     db.commit()
@@ -82,10 +81,9 @@ def get_expenses(
     skip: Optional[int] = 0,
     limit: Optional[int] = 20,
     db:Session = Depends(get_db), 
-    current_user_email: str = Depends(get_current_user)
+    current_user_id: str = Depends(get_current_user_id)
     ):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
-    db_expenses = db.query(ExpenseModel).filter(ExpenseModel.user_id == db_user.id)
+    db_expenses = db.query(ExpenseModel).filter(ExpenseModel.user_id == current_user_id)
     if category:
         db_expenses = db_expenses.filter(ExpenseModel.category == category)
     if start_date:
@@ -95,10 +93,9 @@ def get_expenses(
     return db_expenses.offset(skip).limit(limit).all()
 
 @router.put("/expenses")
-def update_expense(expense: ExpenseUpdate, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+def update_expense(expense: ExpenseUpdate, db: Session = Depends(get_db), current_user_id: str = Depends(get_current_user_id)):
     db_expense = db.query(ExpenseModel).filter(ExpenseModel.id == expense.expense_id).first()
-    if db_user.id != db_expense.user_id:
+    if current_user_id != db_expense.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Expense is not associated with the user")
     db_expense.name = expense.name
     db_expense.description = expense.description
@@ -110,26 +107,24 @@ def update_expense(expense: ExpenseUpdate, db: Session = Depends(get_db), curren
     return {"status": status.HTTP_200_OK, "Expense ID": db_expense.id, "message": "Expense Updated"}
 
 @router.delete("/expenses")
-def delete_expense(expense_id: int, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+def delete_expense(expense_id: int, db: Session = Depends(get_db), current_user_id: str = Depends(get_current_user_id)):
     db_expense = db.query(ExpenseModel).filter(ExpenseModel.id == expense_id).first()
     if not db_expense:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
-    if db_expense.user_id != db_user.id:
+    if db_expense.user_id != current_user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your Expense")
     db.delete(db_expense)
     db.commit()
     return {"status": status.HTTP_200_OK, "message": "Expense Deleted"}
 
 @router.get("/expenses/summary")
-def get_expenses_summary(month_name: str, db: Session = Depends(get_db), current_user_email: str = Depends(get_current_user)):
-    db_user = db.query(UserModel).filter(UserModel.email == current_user_email).first()
+def get_expenses_summary(month_name: str, db: Session = Depends(get_db), current_user_id: str = Depends(get_current_user_id)):
     start_date, end_date = get_month_ranges(month_name)
     query_results = db.query(
         ExpenseModel.category.label("category_name"),
         func.sum(ExpenseModel.amount).label("expense_amount")
     ).filter(
-        ExpenseModel.user_id == db_user.id,
+        ExpenseModel.user_id == current_user_id,
         ExpenseModel.date >= start_date,
         ExpenseModel.date <= end_date
     ).group_by(
