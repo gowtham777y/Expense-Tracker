@@ -8,6 +8,7 @@ from authentication.auth import get_current_user_id
 from database.models import ExpenseModel,CategoryModel
 from date_ranges import get_month_ranges
 from typing import Optional
+from events.publish import publish_event
 
 class Expense(BaseModel):
     name: str
@@ -71,6 +72,12 @@ def add_expense(expense: Expense,db: Session = Depends(get_db),current_user_id: 
     db.add(db_expense)
     db.commit()
     db.refresh(db_expense)
+    publish_event("expense.created", {
+        "expense_id": db_expense.id,
+        "user_id": current_user_id,
+        "amount": db_expense.amount,
+        "category": db_expense.category
+    })
     return {"status": status.HTTP_201_CREATED, "message": "Expense added", "expense_id": db_expense.id}
 
 @router.get("/expenses")
